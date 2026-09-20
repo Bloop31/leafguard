@@ -1,5 +1,10 @@
 # LeafGuard
 
+![CI](https://github.com/Bloop31/leafguard/actions/workflows/ci.yml/badge.svg)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Python](https://img.shields.io/badge/python-3.11-blue.svg)
+
+
 A deep learning model that detects crop leaf diseases from a single photo — built to help identify plant health issues early, before they spread across a field.
 
 ## Overview

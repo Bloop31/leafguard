@@ -85,3 +85,15 @@ def get_dataloaders(
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=2)
 
     return train_loader, val_loader, classes
+
+
+def imbalance_ratio(stats: dict) -> float:
+    """Ratio of the largest class to the smallest class.
+
+    A ratio close to 1.0 means classes are balanced. Anything above ~3
+    is worth handling with class weights or oversampling later.
+    """
+    if not stats:
+        raise ValueError("stats dict is empty")
+    counts = list(stats.values())
+    return round(max(counts) / min(counts), 2)
