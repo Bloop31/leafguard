@@ -1,4 +1,4 @@
-# LeafGuard 🌿
+# LeafGuard 
 
 Deep learning project to detect crop leaf diseases from images, built as a **daily-commit GitHub streak project**: one issue → one branch → one PR → one merge, every day, for 30 days.
 
