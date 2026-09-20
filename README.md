@@ -24,7 +24,7 @@ Training runs on Kaggle's free GPU notebooks; this repo holds the reusable code,
 
 ## Current status
 
-🚧 **Early stage.** Repo scaffolding, data pipeline, and baseline model code are in place. Exploratory data analysis on the PlantVillage dataset is next.
+**Early stage.** Repo scaffolding, data pipeline, and baseline model code are in place. Exploratory data analysis on the PlantVillage dataset is next.
 
 ## Setup
 
