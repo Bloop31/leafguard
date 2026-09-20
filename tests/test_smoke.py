@@ -54,6 +54,8 @@ def test_list_classes_and_dataset_stats(tmp_path):
 
     stats = dataset_stats(str(tmp_path))
     assert stats == {"diseased": 1, "healthy": 2}
+
+
 def test_imbalance_ratio():
     from leafguard.data import imbalance_ratio
 
