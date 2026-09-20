@@ -1,0 +1,16 @@
+# Core, lightweight — installed locally and in CI (no GPU needed)
+numpy>=1.26
+pandas>=2.1
+matplotlib>=3.8
+seaborn>=0.13
+scikit-learn>=1.4
+pillow>=10.2
+tqdm>=4.66
+pytest>=8.0
+flake8>=7.0
+
+# Heavy deep-learning deps — DO NOT install these on your laptop.
+# They already come pre-installed on Kaggle Notebooks. Listed here only
+# for reference / reproducibility of the Kaggle environment:
+#   torch>=2.2
+#   torchvision>=0.17

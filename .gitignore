@@ -1,0 +1,29 @@
+# Data & models (too large for git — kept on Kaggle / Kaggle datasets)
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+models/*.pt
+models/*.pth
+models/*.h5
+!models/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Kaggle output bundles you may download
+outputs/
+kaggle.json
