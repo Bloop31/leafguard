@@ -97,3 +97,16 @@ def imbalance_ratio(stats: dict) -> float:
         raise ValueError("stats dict is empty")
     counts = list(stats.values())
     return round(max(counts) / min(counts), 2)
+
+
+def top_n_classes(stats: dict, n: int = 5, largest: bool = True) -> list:
+    """Return the n largest (or smallest) classes as (name, count) pairs.
+
+    Useful for a quick "which classes need oversampling" check before
+    training, without re-plotting the full distribution every time.
+    """
+    if n <= 0:
+        raise ValueError("n must be positive")
+    ordered = sorted(stats.items(), key=lambda kv: kv[1], reverse=largest)
+
+    return ordered[:n]
