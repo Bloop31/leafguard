@@ -64,3 +64,13 @@ def test_imbalance_ratio():
 
     skewed = {"a": 100, "b": 25}
     assert imbalance_ratio(skewed) == 4.0
+
+
+def test_top_n_classes():
+    from leafguard.data import top_n_classes
+
+    stats = {"a": 10, "b": 50, "c": 5, "d": 30}
+
+    assert top_n_classes(stats, n=2) == [("b", 50), ("d", 30)]
+
+    assert top_n_classes(stats, n=2, largest=False) == [("c", 5), ("a", 10)]
