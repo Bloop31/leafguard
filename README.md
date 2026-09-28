@@ -11,7 +11,6 @@ A deep learning model that detects crop leaf diseases from a single photo — bu
 
 LeafGuard classifies leaf images into healthy vs. diseased categories (with disease type) using the [PlantVillage](https://www.kaggle.com/datasets/emmarex/plantdisease) dataset. The project starts with a CNN trained from scratch as a baseline, then moves to transfer learning with pretrained backbones (ResNet18 / EfficientNetB0) to push accuracy higher, and eventually adds Grad-CAM visual explanations so predictions aren't a black box — you can see *which part of the leaf* the model is reacting to.
 
-Training runs on Kaggle's free GPU notebooks; this repo holds the reusable code, experiment tracking, and results.
 
 ## Project goals
 
@@ -24,7 +23,7 @@ Training runs on Kaggle's free GPU notebooks; this repo holds the reusable code,
 
 ## Current status
 
-**Early stage.** Repo scaffolding, data pipeline, and baseline model code are in place. Exploratory data analysis on the PlantVillage dataset is next.
+**Early stage.** Repo scaffolding, data pipeline, and baseline model code are in place. Exploratory data analysis on the PlantVillage dataset is done.
 
 ## Setup
 
