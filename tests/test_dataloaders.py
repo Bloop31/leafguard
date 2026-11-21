@@ -2,6 +2,8 @@
 
 Skipped automatically where torch/torchvision aren't installed (CI and
 laptops); run them on Kaggle or any machine with the deep-learning stack.
+The torch-free split logic itself is covered in tests/test_split.py, which
+does run in CI.
 """
 
 import sys
@@ -15,12 +17,11 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("torchvision")
 Image = pytest.importorskip("PIL.Image")
 
-from torch.utils.data import random_split  # noqa: E402
-
-from leafguard.data import build_datasets, get_dataloaders  # noqa: E402
+from leafguard.data import build_datasets, get_dataloaders, split_indices  # noqa: E402
 
 CLASSES = ["diseased", "healthy", "rust"]
 IMAGES_PER_CLASS = 5
+N_IMAGES = len(CLASSES) * IMAGES_PER_CLASS  # 15 -> 70/15/15 gives 11 / 2 / 2
 
 
 @pytest.fixture
@@ -41,61 +42,71 @@ def _transform_names(ds):
     return [type(t).__name__ for t in ds.dataset.transform.transforms]
 
 
-def test_split_sizes_are_disjoint_and_cover_everything(image_root):
-    train_ds, val_ds, classes = build_datasets(image_root, val_split=0.2, img_size=32)
+def _is_augmentation(name):
+    return name.startswith("Random") or name == "ColorJitter"
+
+
+def test_splits_are_disjoint_and_cover_everything(image_root):
+    train_ds, val_ds, test_ds, classes = build_datasets(image_root, img_size=32)
 
     assert classes == CLASSES
-    assert len(train_ds) == 12
-    assert len(val_ds) == 3
-    assert set(train_ds.indices).isdisjoint(val_ds.indices)
-    assert sorted(train_ds.indices + val_ds.indices) == list(range(15))
+    assert (len(train_ds), len(val_ds), len(test_ds)) == (11, 2, 2)
+    train, val, test = set(train_ds.indices), set(val_ds.indices), set(test_ds.indices)
+    assert train.isdisjoint(val) and train.isdisjoint(test) and val.isdisjoint(test)
+    assert sorted(train | val | test) == list(range(N_IMAGES))
 
 
-def test_split_matches_previous_random_split(image_root):
-    # Same seed must give the same membership as the old random_split code path.
-    train_ds, val_ds, _ = build_datasets(image_root, val_split=0.2, img_size=32, seed=42)
-    old_train, old_val = random_split(range(15), [12, 3], generator=torch.Generator().manual_seed(42))
+def test_split_can_be_rebuilt_from_seed_and_size_alone(image_root):
+    # Day 4 evaluation relies on this: the test set is fully determined by
+    # (n_total, val_split, test_split, seed), without loading any images.
+    train_ds, val_ds, test_ds, _ = build_datasets(image_root, img_size=32, seed=7)
+    train_idx, val_idx, test_idx = split_indices(N_IMAGES, seed=7)
 
-    assert train_ds.indices == list(old_train.indices)
-    assert val_ds.indices == list(old_val.indices)
+    assert train_ds.indices == train_idx
+    assert val_ds.indices == val_idx
+    assert test_ds.indices == test_idx
 
 
 def test_seed_controls_the_split(image_root):
-    a_train, _, _ = build_datasets(image_root, img_size=32, seed=1)
-    b_train, _, _ = build_datasets(image_root, img_size=32, seed=1)
-    c_train, _, _ = build_datasets(image_root, img_size=32, seed=2)
+    a = build_datasets(image_root, img_size=32, seed=1)
+    b = build_datasets(image_root, img_size=32, seed=1)
+    c = build_datasets(image_root, img_size=32, seed=2)
 
-    assert a_train.indices == b_train.indices
-    assert a_train.indices != c_train.indices
+    for split in range(3):
+        assert a[split].indices == b[split].indices
+    assert [a[s].indices for s in range(3)] != [c[s].indices for s in range(3)]
 
 
-def test_train_keeps_augmentation_and_val_uses_eval_transforms(image_root):
+def test_train_keeps_augmentation_and_val_test_use_eval_transforms(image_root):
     # Regression: setting val_ds.dataset.transform used to strip augmentation from train too.
-    train_ds, val_ds, _ = build_datasets(image_root, img_size=32)
+    train_ds, val_ds, test_ds, _ = build_datasets(image_root, img_size=32)
 
     assert train_ds.dataset is not val_ds.dataset
+    assert train_ds.dataset is not test_ds.dataset
     assert "RandomHorizontalFlip" in _transform_names(train_ds)
     assert "ColorJitter" in _transform_names(train_ds)
-    assert not any(n.startswith("Random") or n == "ColorJitter" for n in _transform_names(val_ds))
+    assert not any(_is_augmentation(n) for n in _transform_names(val_ds))
+    assert not any(_is_augmentation(n) for n in _transform_names(test_ds))
 
 
-def test_val_is_deterministic_and_train_is_augmented(image_root):
-    train_ds, val_ds, _ = build_datasets(image_root, img_size=32)
+def test_val_and_test_are_deterministic_and_train_is_augmented(image_root):
+    train_ds, val_ds, test_ds, _ = build_datasets(image_root, img_size=32)
     torch.manual_seed(0)
 
     assert torch.equal(val_ds[0][0], val_ds[0][0])
+    assert torch.equal(test_ds[0][0], test_ds[0][0])
     draws = [train_ds[0][0] for _ in range(5)]
     assert any(not torch.equal(draws[0], d) for d in draws[1:])
 
 
-def test_both_splits_map_to_the_same_image_files(image_root):
-    train_ds, val_ds, _ = build_datasets(image_root, img_size=32)
+def test_all_splits_map_to_the_same_image_files(image_root):
+    train_ds, val_ds, test_ds, _ = build_datasets(image_root, img_size=32)
 
-    assert train_ds.dataset.samples == val_ds.dataset.samples
+    assert train_ds.dataset.samples == val_ds.dataset.samples == test_ds.dataset.samples
 
 
 def test_get_dataloaders_batch_shapes_and_labels(image_root):
-    train_loader, val_loader, classes = get_dataloaders(
+    train_loader, val_loader, test_loader, classes = get_dataloaders(
         image_root, batch_size=4, img_size=64, num_workers=0
     )
 
@@ -105,12 +116,13 @@ def test_get_dataloaders_batch_shapes_and_labels(image_root):
     assert labels.dtype == torch.int64
     assert labels.min() >= 0 and labels.max() < len(classes)
 
-    val_imgs, val_labels = next(iter(val_loader))
-    assert val_imgs.shape == (3, 3, 64, 64)
-    assert val_labels.shape == (3,)
+    for loader in (val_loader, test_loader):
+        eval_imgs, eval_labels = next(iter(loader))
+        assert eval_imgs.shape == (2, 3, 64, 64)
+        assert eval_labels.shape == (2,)
 
 
-@pytest.mark.parametrize("val_split", [0.0, 1.0, -0.1, 1.5])
-def test_invalid_val_split_raises(image_root, val_split):
+@pytest.mark.parametrize("val_split, test_split", [(0.0, 0.15), (0.15, 0.0), (1.0, 0.15), (0.5, 0.5)])
+def test_invalid_splits_raise(image_root, val_split, test_split):
     with pytest.raises(ValueError):
-        build_datasets(image_root, val_split=val_split)
+        build_datasets(image_root, val_split=val_split, test_split=test_split)
