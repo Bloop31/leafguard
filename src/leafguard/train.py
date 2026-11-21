@@ -36,7 +36,8 @@ def train(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    train_loader, val_loader, classes = get_dataloaders(data_root, batch_size=batch_size)
+    # The test split is held out: never evaluate on it during training.
+    train_loader, val_loader, _test_loader, classes = get_dataloaders(data_root, batch_size=batch_size)
     num_classes = len(classes)
     print(f"Found {num_classes} classes: {classes}")
 
