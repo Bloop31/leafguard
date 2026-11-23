@@ -165,9 +165,16 @@ def imbalance_ratio(stats: dict) -> float:
 
     A ratio close to 1.0 means classes are balanced. Anything above ~3
     is worth handling with class weights or oversampling later.
+
+    Raises ValueError if any class has zero images (e.g. an empty class
+    folder): the ratio is undefined, and an empty class would break
+    training anyway, so it is better to fail loudly with the class names.
     """
     if not stats:
         raise ValueError("stats dict is empty")
+    empty = sorted(cls for cls, n in stats.items() if n == 0)
+    if empty:
+        raise ValueError(f"cannot compute imbalance ratio: class(es) with 0 images: {', '.join(empty)}")
     counts = list(stats.values())
     return round(max(counts) / min(counts), 2)
 

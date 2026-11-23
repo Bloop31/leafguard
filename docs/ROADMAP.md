@@ -69,4 +69,5 @@ How to use this: open an issue for "Day N" (use the *Daily task* issue template)
 
 ## Status
 - [x] Day 0: Repo scaffold, CI, baseline code structure
+- [x] Day 6: data.py unit tests
 - [ ] Day 1 — 30: see table above
