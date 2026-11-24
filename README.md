@@ -37,4 +37,6 @@ Training requires a GPU — I run experiments on Kaggle Notebooks (PlantVillage 
 
 ## Tech stack
 
-Python, PyTorch, torchvision, scikit-learn, matplotlib, pytest — CI runs lint + tests on every push via GitHub Actions.
+Python, PyTorch, torchvision, scikit-learn, matplotlib, pytest.
+
+CI (GitHub Actions, every push) runs two jobs: flake8 lint + the torch-free tests, and the full test suite again with CPU-only torch/torchvision installed, so the model, transform and dataloader tests run too. No test downloads pretrained weights.

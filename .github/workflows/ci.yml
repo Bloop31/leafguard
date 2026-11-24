@@ -26,3 +26,31 @@ jobs:
 
       - name: Smoke tests (pytest, CPU-only, no torch needed)
         run: pytest tests/ -v
+
+  # Same tests again with CPU-only torch + torchvision installed, so the
+  # model / transform / dataloader tests that skip above actually run.
+  # Tests never download pretrained weights (tests/conftest.py blocks it).
+  torch-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          # Include this workflow in the cache key so the torch wheels get their
+          # own cache instead of sharing the lightweight job's.
+          cache-dependency-path: |
+            requirements.txt
+            .github/workflows/ci.yml
+
+      - name: Install lightweight dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install CPU-only torch + torchvision
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Tests (pytest, CPU torch)
+        run: pytest tests/ -v
