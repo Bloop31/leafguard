@@ -13,6 +13,16 @@ repo: .pt -> models/ (gitignored, kept locally), .png -> reports/figures/,
 
 The test split is built but never touched here: checkpoints are chosen on
 val only, so test accuracy stays an honest estimate for Day 4 evaluation.
+
+Quick check on a laptop CPU (no GPU, no download, seconds not hours):
+
+    python -m leafguard.train --backbone baseline --fast-dev-run \
+        --data-root path/to/PlantVillage --out-dir outputs/dev
+
+``--fast-dev-run`` trains 1 epoch on a 64-image subset with ImageNet weights
+off and no dataloader workers. It only proves the pipeline runs end to end;
+its accuracy means nothing. ``--max-samples N`` alone keeps every other
+setting and just trains on an N-image subset.
 """
 
 import argparse
@@ -20,6 +30,14 @@ import json
 import random
 import time
 from pathlib import Path
+from typing import List, Optional
+
+BACKBONES = ["baseline", "resnet18", "efficientnet_b0"]
+
+# --fast-dev-run settings: small enough for a few seconds on a laptop CPU, but
+# still enough images for every split (train / val / test) to be non-empty.
+FAST_DEV_RUN_EPOCHS = 1
+FAST_DEV_RUN_MAX_SAMPLES = 64
 
 
 def set_seed(seed: int) -> None:
@@ -47,13 +65,37 @@ def train(
     seed: int = 42,
     val_split: float = 0.15,
     test_split: float = 0.15,
+    img_size: int = 224,
+    num_workers: int = 2,
+    max_samples: Optional[int] = None,
+    pretrained: bool = True,
+    fast_dev_run: bool = False,
 ) -> dict:
+    """Train one model, keep the best-val-accuracy checkpoint, save metrics + curves.
+
+    ``fast_dev_run`` overrides epochs, max_samples (unless a smaller one is
+    given), num_workers and pretrained -- see the module docstring.
+    """
+    # Checked before the heavy imports, so a typo fails fast (and testably without torch).
+    if backbone not in BACKBONES:
+        raise ValueError(f"Unknown backbone {backbone!r}, expected one of {BACKBONES}")
+
     import torch
     import torch.nn as nn
     import matplotlib.pyplot as plt
 
     from leafguard.data import get_dataloaders
     from leafguard.model import build_transfer_model, BaselineCNN
+
+    if fast_dev_run:
+        epochs = FAST_DEV_RUN_EPOCHS
+        max_samples = min(max_samples or FAST_DEV_RUN_MAX_SAMPLES, FAST_DEV_RUN_MAX_SAMPLES)
+        num_workers = 0
+        pretrained = False
+        print(
+            f"fast-dev-run: {epochs} epoch, at most {max_samples} images, no pretrained weights "
+            "(checks the pipeline only; accuracy is meaningless)"
+        )
 
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
@@ -64,17 +106,19 @@ def train(
 
     # test_loader is deliberately unused: only its indices are recorded, for Day 4.
     train_loader, val_loader, test_loader, classes = get_dataloaders(
-        data_root, batch_size=batch_size, val_split=val_split, test_split=test_split, seed=seed
+        data_root, batch_size=batch_size, val_split=val_split, test_split=test_split,
+        img_size=img_size, seed=seed, num_workers=num_workers, max_samples=max_samples,
     )
     num_classes = len(classes)
     n_train, n_val, n_test = (len(dl.dataset) for dl in (train_loader, val_loader, test_loader))
     print(f"Found {num_classes} classes: {classes}")
-    print(f"Split (seed={seed}): train={n_train} val={n_val} test={n_test} (test held out)")
+    subset_note = f", subset of {max_samples}" if max_samples else ""
+    print(f"Split (seed={seed}{subset_note}): train={n_train} val={n_val} test={n_test} (test held out)")
 
     if backbone == "baseline":
         model = BaselineCNN(num_classes)
     else:
-        model = build_transfer_model(backbone, num_classes, freeze_backbone=True)
+        model = build_transfer_model(backbone, num_classes, freeze_backbone=True, pretrained=pretrained)
     model = model.to(device)
 
     criterion = nn.CrossEntropyLoss()
@@ -133,25 +177,37 @@ def train(
             f"({epoch_time:.1f}s)"
         )
 
-        if val_acc > best_val_acc:
+        # `best_epoch is None` makes sure epoch 1 is always saved, even at 0% val accuracy.
+        if best_epoch is None or val_acc > best_val_acc:
             best_val_acc = val_acc
             best_epoch = epoch + 1
             torch.save(model.state_dict(), out_path / f"{backbone}_best.pt")
 
     metrics = {
         "backbone": backbone,
-        "config": {"epochs": epochs, "batch_size": batch_size, "lr": lr, "seed": seed},
+        "config": {
+            "epochs": epochs,
+            "batch_size": batch_size,
+            "lr": lr,
+            "seed": seed,
+            "img_size": img_size,
+            "pretrained": pretrained,
+            "max_samples": max_samples,
+            "fast_dev_run": fast_dev_run,
+        },
         "history": history,
         "classes": classes,
         "best_val_acc": best_val_acc,
         "best_epoch": best_epoch,
         # Everything Day 4 needs to rebuild the exact same held-out test set:
-        # split_indices(n_total, val_split, test_split, seed) reproduces it, and
-        # test_indices is stored too as a direct cross-check.
+        # split_indices(n_total, val_split, test_split, seed) -- then subsample_split
+        # with max_samples, if set -- reproduces it, and test_indices is stored
+        # too as a direct cross-check.
         "split": {
             "seed": seed,
             "val_split": val_split,
             "test_split": test_split,
+            "max_samples": max_samples,
             "n_total": n_train + n_val + n_test,
             "n_train": n_train,
             "n_val": n_val,
@@ -182,17 +238,35 @@ def train(
     return metrics
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--backbone", default="resnet18", choices=["baseline", "resnet18", "efficientnet_b0"])
-    parser.add_argument("--data-root", required=True)
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Train a LeafGuard model (best-val checkpoint + metrics).")
+    parser.add_argument("--backbone", default="resnet18", choices=BACKBONES)
+    parser.add_argument("--data-root", required=True, help="ImageFolder root: one sub-folder per class")
     parser.add_argument("--out-dir", default="/kaggle/working/outputs")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=42)
-    args = parser.parse_args()
+    parser.add_argument("--img-size", type=int, default=224)
+    parser.add_argument("--num-workers", type=int, default=2, help="DataLoader workers (0 = main process)")
+    parser.add_argument(
+        "--max-samples", type=int, default=None,
+        help="train/val/test on a seeded subset of this many images in total (default: all)",
+    )
+    parser.add_argument(
+        "--no-pretrained", dest="pretrained", action="store_false",
+        help="start transfer backbones from random weights instead of downloading ImageNet ones",
+    )
+    parser.add_argument(
+        "--fast-dev-run", action="store_true",
+        help=f"CPU smoke run: {FAST_DEV_RUN_EPOCHS} epoch, <= {FAST_DEV_RUN_MAX_SAMPLES} images, "
+        "no pretrained weights, no workers",
+    )
+    return parser
 
+
+def main(argv: Optional[List[str]] = None):
+    args = build_parser().parse_args(argv)
     train(
         backbone=args.backbone,
         data_root=args.data_root,
@@ -201,6 +275,11 @@ def main():
         batch_size=args.batch_size,
         lr=args.lr,
         seed=args.seed,
+        img_size=args.img_size,
+        num_workers=args.num_workers,
+        max_samples=args.max_samples,
+        pretrained=args.pretrained,
+        fast_dev_run=args.fast_dev_run,
     )
 
 

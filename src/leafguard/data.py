@@ -15,7 +15,7 @@ Usage on Kaggle:
 
 import random
 from pathlib import Path
-from typing import Tuple, List
+from typing import List, Optional, Tuple
 
 
 def list_classes(root: str) -> List[str]:
@@ -98,14 +98,48 @@ def split_indices(
     return indices[:n_train], indices[n_train:n_train + n_val], indices[n_train + n_val:]
 
 
+def subsample_split(
+    train_idx: List[int],
+    val_idx: List[int],
+    test_idx: List[int],
+    max_samples: Optional[int],
+) -> Tuple[List[int], List[int], List[int]]:
+    """Shrink a (train, val, test) split to ``max_samples`` images in total, for quick runs.
+
+    Each split keeps the first part of its (already shuffled) index list, in
+    proportion to its size, with at least one image each, so a subset run still
+    has a val and a test set. Taking prefixes keeps it deterministic: the same
+    seed and ``max_samples`` always pick the same images, which is what lets
+    evaluate.py rebuild the test subset a quick training run used.
+    ``None``, or a value at least the dataset size, returns the split unchanged.
+    """
+    n_total = len(train_idx) + len(val_idx) + len(test_idx)
+    if max_samples is None or max_samples >= n_total:
+        return train_idx, val_idx, test_idx
+    if max_samples < 3:
+        raise ValueError(f"max_samples must be at least 3 (one image per split), got {max_samples}")
+
+    frac = max_samples / n_total
+    n_val = max(1, int(len(val_idx) * frac))
+    n_test = max(1, int(len(test_idx) * frac))
+    n_train = max_samples - n_val - n_test
+    if n_train < 1:
+        raise ValueError(f"max_samples={max_samples} leaves no training images")
+    return train_idx[:n_train], val_idx[:n_val], test_idx[:n_test]
+
+
 def build_datasets(
     root: str,
     val_split: float = 0.15,
     test_split: float = 0.15,
     img_size: int = 224,
     seed: int = 42,
+    max_samples: Optional[int] = None,
 ) -> Tuple["object", "object", "object", List[str]]:
     """Build seeded train/val/test splits; train is augmented, val/test use eval transforms.
+
+    ``max_samples`` caps the total number of images (see ``subsample_split``),
+    for fast CPU smoke runs; leave it as None for real training.
 
     ``random_split`` returns Subsets that share one underlying dataset, so
     setting ``val_ds.dataset.transform`` would also strip augmentation from
@@ -126,6 +160,7 @@ def build_datasets(
     train_idx, val_idx, test_idx = split_indices(
         len(train_base), val_split=val_split, test_split=test_split, seed=seed
     )
+    train_idx, val_idx, test_idx = subsample_split(train_idx, val_idx, test_idx, max_samples)
     train_ds = Subset(train_base, train_idx)
     val_ds = Subset(eval_base, val_idx)
     test_ds = Subset(eval_base, test_idx)
@@ -140,6 +175,7 @@ def get_dataloaders(
     img_size: int = 224,
     seed: int = 42,
     num_workers: int = 2,
+    max_samples: Optional[int] = None,
 ) -> Tuple["object", "object", "object", List[str]]:
     """Build train/val/test DataLoaders (default 70/15/15) with ImageNet-style augmentation on train.
 
@@ -150,7 +186,8 @@ def get_dataloaders(
     from torch.utils.data import DataLoader
 
     train_ds, val_ds, test_ds, classes = build_datasets(
-        root, val_split=val_split, test_split=test_split, img_size=img_size, seed=seed
+        root, val_split=val_split, test_split=test_split, img_size=img_size, seed=seed,
+        max_samples=max_samples,
     )
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers)
