@@ -9,8 +9,11 @@ tqdm>=4.66
 pytest>=8.0
 flake8>=7.0
 
-# Heavy deep-learning deps — DO NOT install these on your laptop.
-# They already come pre-installed on Kaggle Notebooks. Listed here only
-# for reference / reproducibility of the Kaggle environment:
+# Heavy deep-learning deps — not needed for the lightweight tests, and no
+# GPU build on your laptop. They come pre-installed on Kaggle Notebooks.
+# For the quick CPU check (scripts/cpu_smoke.py) and the torch tests, the
+# CPU-only wheels are enough (see README "Quick CPU check"):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# Versions used on Kaggle, for reference / reproducibility:
 #   torch>=2.2
 #   torchvision>=0.17
