@@ -65,7 +65,9 @@ class BaselineCNN:
         return _Net(num_classes)
 
 
-def build_transfer_model(backbone: str, num_classes: int, freeze_backbone: bool = True):
+def build_transfer_model(
+    backbone: str, num_classes: int, freeze_backbone: bool = True, pretrained: bool = True
+):
     """Build an EfficientNetB0 or ResNet18 with a fresh classifier head.
 
     Args:
@@ -74,17 +76,21 @@ def build_transfer_model(backbone: str, num_classes: int, freeze_backbone: bool 
         freeze_backbone: if True, only the new classifier head is trained
             (fast, good for the first transfer-learning experiment). Set to
             False later for fine-tuning the whole network.
+        pretrained: if True (default, for training), start from ImageNet weights,
+            which torchvision downloads on first use. Pass False when a trained
+            checkpoint is about to be loaded on top (evaluate / predict) or for
+            offline smoke runs: same architecture, random init, no download.
     """
     _require_torch()
 
     if backbone == "resnet18":
-        net = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        net = models.resnet18(weights=models.ResNet18_Weights.DEFAULT if pretrained else None)
         if freeze_backbone:
             for p in net.parameters():
                 p.requires_grad = False
         net.fc = nn.Linear(net.fc.in_features, num_classes)
     elif backbone == "efficientnet_b0":
-        net = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
+        net = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT if pretrained else None)
         if freeze_backbone:
             for p in net.parameters():
                 p.requires_grad = False

@@ -293,6 +293,28 @@ def check_against_training_metrics(
         )
 
 
+def data_settings(
+    train_metrics: Optional[dict], img_size: Optional[int] = None, max_samples: Optional[int] = None
+) -> dict:
+    """The dataloader settings that rebuild the test split a training run used.
+
+    Taken from the training ``metrics_{backbone}.json`` when there is one
+    (split fractions, image size, ``max_samples`` subset), so evaluating a
+    ``--fast-dev-run`` or ``--max-samples`` checkpoint needs no extra flags.
+    ``img_size`` / ``max_samples`` passed explicitly win over the recorded
+    values; without a metrics file the defaults match train.py's.
+    """
+    train_metrics = train_metrics or {}
+    split = train_metrics.get("split", {})
+    config = train_metrics.get("config", {})
+    return {
+        "val_split": split.get("val_split", 0.15),
+        "test_split": split.get("test_split", 0.15),
+        "img_size": img_size if img_size is not None else config.get("img_size", 224),
+        "max_samples": max_samples if max_samples is not None else split.get("max_samples"),
+    }
+
+
 def evaluate(
     backbone: str,
     weights_path: str,
@@ -301,11 +323,16 @@ def evaluate(
     batch_size: int = 32,
     seed: int = 42,
     metrics_path: Optional[str] = None,
+    img_size: Optional[int] = None,
+    max_samples: Optional[int] = None,
+    num_workers: int = 2,
 ) -> dict:
     """Score a trained checkpoint on the held-out test split and save the reports.
 
     ``metrics_path`` is the training ``metrics_{backbone}.json`` used to
     cross-check the split; by default it is looked for next to the weights.
+    Split fractions, image size and subset size come from it too (see
+    ``data_settings``).
     """
     import torch
 
@@ -317,20 +344,27 @@ def evaluate(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}, seed: {seed}")
 
-    # Same call (and defaults) as train.py, so split_indices hands back the same test set.
-    _, _, test_loader, classes = get_dataloaders(data_root, batch_size=batch_size, seed=seed)
-    test_indices = list(test_loader.dataset.indices)
-
     if metrics_path:
         metrics_file = Path(metrics_path)
     else:
         metrics_file = Path(weights_path).with_name(f"metrics_{backbone}.json")
+    train_metrics = None
     if metrics_file.is_file():
         with open(metrics_file) as f:
-            check_against_training_metrics(json.load(f), test_indices, classes, seed)
-        split_check = f"matches {metrics_file.name}"
+            train_metrics = json.load(f)
     elif metrics_path:
         raise FileNotFoundError(f"Training metrics not found: {metrics_path}")
+    settings = data_settings(train_metrics, img_size=img_size, max_samples=max_samples)
+
+    # Same split settings as the training run, so split_indices hands back the same test set.
+    _, _, test_loader, classes = get_dataloaders(
+        data_root, batch_size=batch_size, seed=seed, num_workers=num_workers, **settings
+    )
+    test_indices = list(test_loader.dataset.indices)
+
+    if train_metrics is not None:
+        check_against_training_metrics(train_metrics, test_indices, classes, seed)
+        split_check = f"matches {metrics_file.name}"
     else:
         split_check = "skipped (no training metrics file next to the weights)"
     print(f"Test split: {len(test_indices)} images, {len(classes)} classes; split check {split_check}")
@@ -338,7 +372,8 @@ def evaluate(
     if backbone == "baseline":
         model = BaselineCNN(len(classes))
     else:
-        model = build_transfer_model(backbone, len(classes), freeze_backbone=True)
+        # pretrained=False: the checkpoint replaces every weight, so don't download ImageNet ones.
+        model = build_transfer_model(backbone, len(classes), freeze_backbone=True, pretrained=False)
     model.load_state_dict(torch.load(weights_path, map_location=device, weights_only=True))
     model.to(device).eval()
 
@@ -355,8 +390,9 @@ def evaluate(
         "device": str(device),
         "split": {
             "seed": seed,
-            "val_split": 0.15,
-            "test_split": 0.15,
+            "val_split": settings["val_split"],
+            "test_split": settings["test_split"],
+            "max_samples": settings["max_samples"],
             "n_test": len(test_indices),
             "check": split_check,
         },
@@ -383,6 +419,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--metrics", default=None,
         help="training metrics_{backbone}.json to cross-check the split (default: next to --weights)",
     )
+    parser.add_argument("--img-size", type=int, default=None, help="default: the size used in training")
+    parser.add_argument(
+        "--max-samples", type=int, default=None,
+        help="subset size (default: whatever the training run used, else all images)",
+    )
+    parser.add_argument("--num-workers", type=int, default=2, help="DataLoader workers (0 = main process)")
     return parser
 
 
@@ -396,6 +438,9 @@ def main(argv: Optional[List[str]] = None):
         batch_size=args.batch_size,
         seed=args.seed,
         metrics_path=args.metrics,
+        img_size=args.img_size,
+        max_samples=args.max_samples,
+        num_workers=args.num_workers,
     )
 
 

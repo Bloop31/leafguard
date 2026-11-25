@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from leafguard.data import split_indices  # noqa: E402
+from leafguard.data import split_indices, subsample_split  # noqa: E402
 
 
 def test_default_split_is_70_15_15_and_covers_everything():
@@ -53,3 +53,34 @@ def test_too_few_images_raises():
     # 5 * 0.15 rounds down to 0 -> no val/test images at all.
     with pytest.raises(ValueError):
         split_indices(5)
+
+
+# --- subsample_split (--max-samples / --fast-dev-run subsets) ---------------
+
+
+def test_subsample_keeps_split_proportions_and_is_a_prefix():
+    train, val, test = split_indices(1000)
+    sub_train, sub_val, sub_test = subsample_split(train, val, test, max_samples=100)
+
+    assert (len(sub_train), len(sub_val), len(sub_test)) == (70, 15, 15)
+    # Prefixes of the shuffled lists: deterministic, and still disjoint.
+    assert (sub_train, sub_val, sub_test) == (train[:70], val[:15], test[:15])
+
+
+def test_subsample_gives_every_split_at_least_one_image():
+    train, val, test = split_indices(1000)
+    sub_train, sub_val, sub_test = subsample_split(train, val, test, max_samples=3)
+
+    assert (len(sub_train), len(sub_val), len(sub_test)) == (1, 1, 1)
+
+
+@pytest.mark.parametrize("max_samples", [None, 20, 500])
+def test_subsample_is_a_no_op_without_a_smaller_cap(max_samples):
+    split = split_indices(20)
+
+    assert subsample_split(*split, max_samples=max_samples) == split
+
+
+def test_subsample_too_small_raises():
+    with pytest.raises(ValueError):
+        subsample_split(*split_indices(100), max_samples=2)
